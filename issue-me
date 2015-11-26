@@ -1,0 +1,117 @@
+#!/usr/bin/env boot
+; vim: ft=clojure
+
+(set-env!
+  :dependencies '[[clj-http    "2.0.0"]
+                  [adzerk/env  "0.2.0"]
+                  [cheshire    "5.5.0"]
+                  [jline/jline "2.12"]])
+
+(require '[clj-http.client     :as    client]
+         '[adzerk.env          :as    env]
+         '[cheshire.core       :as    json]
+         '[boot.from.io.aviso.ansi :refer (bold)]
+         '[clojure.java.browse :refer (browse-url)])
+
+(import 'jline.console.ConsoleReader)
+
+(env/def
+  GITHUB_USER  :required
+  GITHUB_TOKEN :required)
+
+(def domain "https://api.github.com")
+
+(def headers
+  {"Accept" "application/vnd.github.v3+json"
+   "Authorization" (format "token %s" GITHUB_TOKEN)})
+
+(defn github-request
+  [route]
+  (client/get (format "%s/%s" domain route) {:headers headers}))
+
+(defn get-watched-repos
+  []
+  (->> (github-request (format "users/%s/subscriptions" GITHUB_USER))
+       :body
+       (#(json/parse-string % true))
+       (filter (fn [{:keys [has_issues open_issues_count]}]
+                 (and has_issues (pos? open_issues_count))))))
+
+(defn get-issues
+  [repo]
+  (->> (:issues_url repo)
+       (re-matches #".*api\.github\.com\/(.+)\{.+\}")
+       second
+       github-request
+       :body
+       (#(json/parse-string % true))
+       (filter (fn [{:keys [state]}] (= state "open")))))
+
+(defn result-row
+  [heading body]
+  (format "%s %s" (bold (str heading \:)) body))
+
+(defn print-hr
+  []
+  (println (apply str (repeat 40 \#)))
+  (println))
+
+(defn print-issue
+  [{:keys [url number title body] :as issue}]
+  (let [org-repo-regex #".*api\.github\.com\/repos\/([^\/]+)\/([^\/]+)\/.*"
+        [org repo] (rest (re-matches org-repo-regex url))]
+    (println (result-row "Issue" (format "%s/%s #%d" org repo number)))
+    (println)
+    (println (result-row "Title" title))
+    (println)
+    (println (result-row "Body" (str \newline \newline body)))))
+
+(defn read-char
+  []
+  (->> (ConsoleReader.) (.readCharacter) char))
+
+(defn confirm-go-to-issue?
+  []
+  (print "Go to this issue? (")
+  (print (str (bold "y") "es/"
+              (bold "n") "o/"
+              (bold "q") "uit) "))
+  (flush)
+  (loop [user-char (read-char)]
+    (case user-char
+      \y :y
+      \n :n
+      \q :q
+      (recur (read-char)))))
+
+(defn go-to-issue
+  [issue]
+  (browse-url (:html_url issue)))
+
+(defn -main []
+  (print "Compiling list of issues for repositories you're watching... ")
+  (flush)
+  (let [repos  (get-watched-repos)
+        issues (mapcat get-issues repos)]
+    (println (format "done. (%s issues)" (count issues)))
+    (Thread/sleep 1000)
+    (doseq [issue (shuffle issues)]
+      (println)
+      (print-hr)
+      (print-issue issue)
+      (println)
+      (case (confirm-go-to-issue?)
+        :y (do
+             (println "y")
+             (Thread/sleep 100)
+             (go-to-issue issue)
+             (System/exit 0))
+        :n (do
+             (println "n")
+             (Thread/sleep 100))
+        :q (do
+             (println "q")
+             (Thread/sleep 100)
+             (System/exit 0))))
+    (println "There are no more issues for the repositories you're watching.")
+    (System/exit 0)))
