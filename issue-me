@@ -7,11 +7,11 @@
                   [cheshire    "5.5.0"]
                   [jline/jline "2.12"]])
 
-(require '[clj-http.client     :as    client]
-         '[adzerk.env          :as    env]
-         '[cheshire.core       :as    json]
+(require '[clj-http.client         :as    client]
+         '[adzerk.env              :as    env]
+         '[cheshire.core           :as    json]
          '[boot.from.io.aviso.ansi :refer (bold)]
-         '[clojure.java.browse :refer (browse-url)])
+         '[clojure.java.browse     :refer (browse-url)])
 
 (import 'jline.console.ConsoleReader)
 
